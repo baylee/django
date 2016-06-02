@@ -18,6 +18,14 @@ from django.test.utils import isolate_lru_cache
 from .models import FoodManager, FoodQuerySet
 
 
+class CustomCharField(models.CharField):
+    pass
+
+
+class CustomTextField(models.TextField):
+    pass
+
+
 class DeconstructibleObject(object):
     """
     A custom deconstructible object.
@@ -60,6 +68,14 @@ class AutodetectorTests(TestCase):
     author_name_default = ModelState("testapp", "Author", [
         ("id", models.AutoField(primary_key=True)),
         ("name", models.CharField(max_length=200, default='Ada Lovelace')),
+    ])
+    author_name_custom_charfield = ModelState("testapp", "Author", [
+        ("id", models.AutoField(primary_key=True)),
+        ("name", CustomCharField(max_length=200, default='Ada Lovelace')),
+    ])
+    author_name_custom_textfield = ModelState("testapp", "Author", [
+        ("id", models.AutoField(primary_key=True)),
+        ("name", CustomTextField(max_length=200, default='Ada Lovelace')),
     ])
     author_dates_of_birth_auto_now = ModelState("testapp", "Author", [
         ("id", models.AutoField(primary_key=True)),
@@ -723,6 +739,35 @@ class AutodetectorTests(TestCase):
         self.assertNumberMigrations(changes, 'testapp', 1)
         self.assertOperationTypes(changes, 'testapp', 0, ["AlterField"])
         self.assertOperationAttributes(changes, "testapp", 0, 0, name="name", preserve_default=True)
+
+    def test_alter_custom_field_base_class(self):
+        """
+        #26586 - Tests autodetection of changes to base field type when using custom field
+        """
+        # Make state
+        class CustomTextField(models.CharField):
+            pass
+        author_name_custom_charfield = ModelState("testapp", "Author", [
+            ("id", models.AutoField(primary_key=True)),
+            ("name", CustomTextField(max_length=200, default='Ada Lovelace')),
+        ])
+        before = self.make_project_state([author_name_custom_charfield])
+
+        class CustomTextField(models.TextField):
+            pass
+        author_name_custom_textfield = ModelState("testapp", "Author", [
+            ("id", models.AutoField(primary_key=True)),
+            ("name", CustomTextField(max_length=200, default='Ada Lovelace')),
+        ])
+        after = self.make_project_state([author_name_custom_textfield])
+        autodetector = MigrationAutodetector(before, after)
+        changes = autodetector._detect_changes()
+        print(dir(changes['testapp'][0].operations[0].field))
+        # Right number/type of migrations?
+        self.assertNumberMigrations(changes, 'testapp', 1)
+        self.assertOperationTypes(changes, 'testapp', 0, ["AlterField"])
+        self.assertOperationAttributes(changes, "testapp", 0, 0, name="name", preserve_default=True)
+        self.assertOperationFieldAttributes(changes, "testapp", 0, 0, default='Ada Lovelace')
 
     def test_supports_functools_partial(self):
         def _content_file_name(instance, filename, key, **kwargs):
